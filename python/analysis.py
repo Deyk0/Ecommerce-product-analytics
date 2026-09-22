@@ -227,27 +227,65 @@ plt.show()
 # Funnel analysis
 # ============================================
 
-funnel = (
-    events.groupby("event_name")["user_id"]
-    .nunique()
-    .reindex([
+event_times = (
+    events
+    .pivot_table(
+        index="user_id",
+        columns="event_name",
+        values="event_time",
+        aggfunc="min"
+    )
+    .reset_index()
+)
+
+# Проверяем последовательность событий
+event_times["view_time"] = event_times["view_product"].where(
+    event_times["view_product"] > event_times["visit"]
+)
+
+event_times["cart_time"] = event_times["add_to_cart"].where(
+    event_times["add_to_cart"] > event_times["view_time"]
+)
+
+event_times["checkout_time"] = event_times["checkout"].where(
+    event_times["checkout"] > event_times["cart_time"]
+)
+
+event_times["purchase_time"] = event_times["purchase"].where(
+    event_times["purchase"] > event_times["checkout_time"]
+)
+
+
+# ============================================
+# Sequential funnel
+# ============================================
+
+funnel = pd.DataFrame({
+    "stage": [
         "visit",
         "view_product",
         "add_to_cart",
         "checkout",
         "purchase"
-    ])
-    .reset_index()
-)
-
-funnel.columns = ["stage", "users"]
+    ],
+    "users": [
+        event_times["visit"].notna().sum(),
+        event_times["view_time"].notna().sum(),
+        event_times["cart_time"].notna().sum(),
+        event_times["checkout_time"].notna().sum(),
+        event_times["purchase_time"].notna().sum()
+    ]
+})
 
 funnel["conversion_from_visit"] = (
-    funnel["users"] / funnel.loc[0, "users"] * 100
+    funnel["users"]
+    / funnel.loc[0, "users"]
+    * 100
 )
 
 print("\n=== FUNNEL ===")
 print(funnel)
+
 
 # ============================================
 # Funnel visualization
@@ -284,12 +322,15 @@ plt.savefig(
 
 plt.show()
 
+
 # ============================================
 # Funnel step conversion
 # ============================================
 
 funnel["step_conversion"] = (
-    funnel["users"] / funnel["users"].shift(1) * 100
+    funnel["users"]
+    / funnel["users"].shift(1)
+    * 100
 )
 
 funnel.loc[0, "step_conversion"] = 100
@@ -300,6 +341,7 @@ print(
         ["stage", "users", "step_conversion"]
     ]
 )
+
 
 # ============================================
 # Funnel step conversion visualization
@@ -593,13 +635,14 @@ cohort_sizes = (
             .dt.to_timestamp()
         )
     )
-    .groupby("cohort_month")["user_id"]
-    .nunique()
-    .reset_index(name="cohort_size")
+    .groupby("cohort_month")
+    .agg(
+        cohort_size=("user_id", "nunique"),
+        cohort_last_registration=("registration_date", "max")
+    )
+    .reset_index()
 )
 
-# Количество активных пользователей
-# в каждом 30-дневном периоде
 cohort_activity = (
     events_with_registration
     .groupby(
@@ -609,37 +652,69 @@ cohort_activity = (
     .reset_index(name="active_users")
 )
 
-# Объединяем с размером когорты
-cohort_retention = cohort_activity.merge(
+# Создаем полный набор когорт × retention periods
+periods = range(
+    int(events_with_registration["retention_month"].max()) + 1
+)
+
+cohort_period_grid = (
+    cohort_sizes[["cohort_month"]]
+    .assign(key=1)
+    .merge(
+        pd.DataFrame({
+            "retention_month": list(periods),
+            "key": 1
+        }),
+        on="key"
+    )
+    .drop(columns="key")
+)
+
+cohort_retention = cohort_period_grid.merge(
     cohort_sizes,
     on="cohort_month",
     how="left"
 )
 
-# Retention %
+cohort_retention = cohort_retention.merge(
+    cohort_activity,
+    on=["cohort_month", "retention_month"],
+    how="left"
+)
+
+# Если период полностью наблюдаем, отсутствие активности = 0
+cohort_retention["active_users"] = (
+    cohort_retention["active_users"]
+    .fillna(0)
+    .astype(float)
+)
+
+# Последняя дата, до которой у нас есть данные
+data_end_date = events_with_registration["event_date"].max()
+
+# Конец retention-периода
+cohort_retention["period_end"] = (
+    pd.to_datetime(
+        cohort_retention["cohort_last_registration"]
+    )
+    + pd.to_timedelta(
+        (cohort_retention["retention_month"] + 1) * 30 - 1,
+        unit="D"
+    )
+)
+
+# Если весь retention-период еще не наблюдаем,
+# значение retention не рассчитываем
+cohort_retention.loc[
+    cohort_retention["period_end"] > data_end_date,
+    "active_users"
+] = float("nan")
+
 cohort_retention["retention"] = (
     cohort_retention["active_users"]
     / cohort_retention["cohort_size"]
     * 100
 )
-
-print("\n===== COHORT RETENTION (30-DAY PERIODS) =====")
-print(
-    cohort_retention[
-        [
-            "cohort_month",
-            "retention_month",
-            "active_users",
-            "cohort_size",
-            "retention"
-        ]
-    ].assign(
-        retention=lambda x: x["retention"].round(2)
-    )
-)
-# ============================================
-# Cohort Retention Matrix
-# ============================================
 
 retention_matrix = (
     cohort_retention
@@ -655,6 +730,9 @@ retention_matrix.columns = [
     for column in retention_matrix.columns
 ]
 
+print("\nCohort retention:")
+print(retention_matrix.round(2))
+
 print("\n===== COHORT RETENTION MATRIX =====")
 print(retention_matrix.round(2))
 
@@ -662,7 +740,7 @@ print(retention_matrix.round(2))
 # Cohort Retention Heatmap
 # ============================================
 
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(10, 6))
 
 plt.imshow(
     retention_matrix,
@@ -685,6 +763,20 @@ plt.yticks(
 plt.xlabel("Retention period")
 plt.ylabel("Cohort")
 plt.title("Cohort Retention — 30-day periods")
+
+# Показываем значения внутри ячеек
+for i in range(len(retention_matrix.index)):
+    for j in range(len(retention_matrix.columns)):
+        value = retention_matrix.iloc[i, j]
+
+        if pd.notna(value):
+            plt.text(
+                j,
+                i,
+                f"{value:.1f}%",
+                ha="center",
+                va="center"
+            )
 
 plt.tight_layout()
 
@@ -834,7 +926,98 @@ device_conversion["conversion"] = (
     / device_conversion["sessions"]
     * 100
 )
+# =========================
+# A/B TEST
+# =========================
 
+ab_events = events[
+    events["event_name"].isin([
+        "view_product",
+        "add_to_cart"
+    ])
+].copy()
+
+ab_events = ab_events.merge(
+    users[["user_id", "experiment_group"]],
+    on="user_id",
+    how="left"
+)
+
+ab_sessions = (
+    ab_events
+    .groupby(
+        ["experiment_group", "user_id", "session_id", "event_name"],
+        as_index=False
+    )["event_time"]
+    .min()
+)
+
+ab_sessions = (
+    ab_sessions
+    .pivot_table(
+        index=["experiment_group", "user_id", "session_id"],
+        columns="event_name",
+        values="event_time",
+        aggfunc="min"
+    )
+    .reset_index()
+)
+
+ab_sessions["converted"] = (
+    ab_sessions["view_product"].notna()
+    & ab_sessions["add_to_cart"].notna()
+    & (
+        ab_sessions["add_to_cart"]
+        > ab_sessions["view_product"]
+    )
+)
+
+ab_results = (
+    ab_sessions[
+        ab_sessions["view_product"].notna()
+    ]
+    .groupby("experiment_group")
+    .agg(
+        sessions_viewed=("session_id", "count"),
+        sessions_added=("converted", "sum")
+    )
+    .reset_index()
+)
+
+ab_results["conversion_percent"] = (
+    ab_results["sessions_added"]
+    / ab_results["sessions_viewed"]
+    * 100
+)
+
+print("\n=== A/B TEST ===")
+print(ab_results)
+plt.figure(figsize=(8, 5))
+
+plt.bar(
+    ab_results["experiment_group"],
+    ab_results["conversion_percent"]
+)
+
+plt.title("A/B Test: View Product → Add to Cart")
+plt.xlabel("Experiment group")
+plt.ylabel("Conversion (%)")
+plt.ylim(0, 100)
+
+for i, value in enumerate(ab_results["conversion_percent"]):
+    plt.text(
+        i,
+        value + 2,
+        f"{value:.2f}%",
+        ha="center"
+    )
+
+plt.tight_layout()
+plt.savefig(
+    "report/ab_test_conversion.png",
+    dpi=150
+)
+plt.close()
 print("\nConversion by device:")
 print(device_conversion)
 # ============================================

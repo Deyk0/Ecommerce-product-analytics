@@ -1,6 +1,22 @@
 ﻿import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy import create_engine
+from pathlib import Path
+
+
+# ============================================
+# Project paths
+# ============================================
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+REPORT_DIR = PROJECT_DIR / "report"
+
+REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================
+# Database connection
+# ============================================
 
 DB_USER = "postgres"
 DB_PASSWORD = input("Введите пароль PostgreSQL: ")
@@ -9,22 +25,44 @@ DB_PORT = "5432"
 DB_NAME = "ecommerce_analytics"
 
 engine = create_engine(
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@"
+    f"{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
+
+# ============================================
 # Загрузка данных
+# ============================================
+
 users = pd.read_sql("SELECT * FROM users", engine)
 products = pd.read_sql("SELECT * FROM products", engine)
 events = pd.read_sql("SELECT * FROM events", engine)
 orders = pd.read_sql("SELECT * FROM orders", engine)
 
-# Приведение дат
-users["registration_date"] = pd.to_datetime(users["registration_date"])
-events["event_time"] = pd.to_datetime(events["event_time"])
-orders["order_time"] = pd.to_datetime(orders["order_time"])
 
+# ============================================
+# Приведение дат
+# ============================================
+
+users["registration_date"] = pd.to_datetime(
+    users["registration_date"]
+)
+
+events["event_time"] = pd.to_datetime(
+    events["event_time"]
+)
+
+orders["order_time"] = pd.to_datetime(
+    orders["order_time"]
+)
+
+
+# ============================================
 # Проверка пропусков
+# ============================================
+
 print("=== Пропуски ===")
+
 print("\nUsers:")
 print(users.isna().sum())
 
@@ -37,19 +75,40 @@ print(events.isna().sum())
 print("\nOrders:")
 print(orders.isna().sum())
 
+
+# ============================================
 # Проверка дубликатов
+# ============================================
+
 print("\n=== Дубликаты ===")
+
 print(f"Users: {users.duplicated().sum()}")
 print(f"Products: {products.duplicated().sum()}")
 print(f"Events: {events.duplicated().sum()}")
 print(f"Orders: {orders.duplicated().sum()}")
 
-# Диапазон дат
-print("\n=== Диапазон дат ===")
-print(f"Events: {events['event_time'].min()} — {events['event_time'].max()}")
-print(f"Orders: {orders['order_time'].min()} — {orders['order_time'].max()}")
 
+# ============================================
+# Диапазон дат
+# ============================================
+
+print("\n=== Диапазон дат ===")
+
+print(
+    f"Events: {events['event_time'].min()} — "
+    f"{events['event_time'].max()}"
+)
+
+print(
+    f"Orders: {orders['order_time'].min()} — "
+    f"{orders['order_time'].max()}"
+)
+
+
+# ============================================
 # Проверка событий до регистрации
+# ============================================
+
 events_with_users = events.merge(
     users[["user_id", "registration_date"]],
     on="user_id",
@@ -62,10 +121,12 @@ events_before_registration = (
 ).sum()
 
 print("\n=== Проверка логики данных ===")
+
 print(
     f"Событий до регистрации пользователя: "
     f"{events_before_registration}"
 )
+
 
 # ============================================
 # DAU — Daily Active Users
@@ -81,9 +142,11 @@ dau = (
 
 print("\n=== DAU ===")
 print(dau.head())
+
 print(f"Средний DAU: {dau['dau'].mean():.0f}")
 print(f"Максимальный DAU: {dau['dau'].max():.0f}")
 print(f"Минимальный DAU: {dau['dau'].min():.0f}")
+
 
 # ============================================
 # WAU — Weekly Active Users
@@ -91,7 +154,11 @@ print(f"Минимальный DAU: {dau['dau'].min():.0f}")
 
 wau = (
     events
-    .assign(week=events["event_time"].dt.to_period("W").dt.start_time)
+    .assign(
+        week=events["event_time"]
+        .dt.to_period("W")
+        .dt.start_time
+    )
     .groupby("week")["user_id"]
     .nunique()
     .reset_index(name="wau")
@@ -107,7 +174,11 @@ print(wau.to_string(index=False))
 
 mau = (
     events
-    .assign(month=events["event_time"].dt.to_period("M").dt.start_time)
+    .assign(
+        month=events["event_time"]
+        .dt.to_period("M")
+        .dt.start_time
+    )
     .groupby("month")["user_id"]
     .nunique()
     .reset_index(name="mau")
@@ -116,11 +187,16 @@ mau = (
 print("\n=== MAU ===")
 print(mau.to_string(index=False))
 
+
 # ============================================
 # DAU / MAU — Stickiness
 # ============================================
 
-dau["month"] = pd.to_datetime(dau["activity_date"]).dt.to_period("M").dt.start_time
+dau["month"] = (
+    pd.to_datetime(dau["activity_date"])
+    .dt.to_period("M")
+    .dt.start_time
+)
 
 avg_dau_by_month = (
     dau
@@ -136,15 +212,19 @@ stickiness = avg_dau_by_month.merge(
 )
 
 stickiness["dau_mau_percent"] = (
-    stickiness["avg_dau"] / stickiness["mau"] * 100
+    stickiness["avg_dau"]
+    / stickiness["mau"]
+    * 100
 )
 
 print("\n=== DAU / MAU ===")
+
 print(
     stickiness[
         ["month", "avg_dau", "mau", "dau_mau_percent"]
     ].to_string(index=False)
 )
+
 
 # ============================================
 # DAU visualization
@@ -164,12 +244,14 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 
 plt.savefig(
-    "report/dau.png",
+    REPORT_DIR / "dau.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 
 # ============================================
 # MAU visualization
@@ -190,12 +272,14 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 
 plt.savefig(
-    "report/mau.png",
+    REPORT_DIR / "mau.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 
 # ============================================
 # DAU / MAU visualization
@@ -216,12 +300,14 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 
 plt.savefig(
-    "report/dau_mau.png",
+    REPORT_DIR / "dau_mau.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 
 # ============================================
 # Funnel analysis
@@ -238,7 +324,9 @@ event_times = (
     .reset_index()
 )
 
+
 # Проверяем последовательность событий
+
 event_times["view_time"] = event_times["view_product"].where(
     event_times["view_product"] > event_times["visit"]
 )
@@ -315,12 +403,13 @@ for i, value in enumerate(funnel["users"]):
 plt.tight_layout()
 
 plt.savefig(
-    "report/funnel.png",
+    REPORT_DIR / "funnel.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
 
 
 # ============================================
@@ -336,6 +425,7 @@ funnel["step_conversion"] = (
 funnel.loc[0, "step_conversion"] = 100
 
 print("\n=== FUNNEL STEP CONVERSION ===")
+
 print(
     funnel[
         ["stage", "users", "step_conversion"]
@@ -380,12 +470,14 @@ for i, value in enumerate(step_conversion["step_conversion"]):
 plt.tight_layout()
 
 plt.savefig(
-    "report/funnel_step_conversion.png",
+    REPORT_DIR / "funnel_step_conversion.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 
 # ============================================
 # Revenue metrics
@@ -396,9 +488,11 @@ total_orders = orders["order_id"].nunique()
 aov = total_revenue / total_orders
 
 print("\n=== REVENUE METRICS ===")
+
 print(f"Total revenue: {total_revenue:,.2f}")
 print(f"Total orders: {total_orders:,}")
 print(f"AOV: {aov:,.2f}")
+
 
 # ============================================
 # Monthly revenue
@@ -406,7 +500,11 @@ print(f"AOV: {aov:,.2f}")
 
 monthly_revenue = (
     orders
-    .assign(month=orders["order_time"].dt.to_period("M").dt.start_time)
+    .assign(
+        month=orders["order_time"]
+        .dt.to_period("M")
+        .dt.start_time
+    )
     .groupby("month")
     .agg(
         revenue=("revenue", "sum"),
@@ -422,6 +520,7 @@ monthly_revenue["aov"] = (
 
 print("\n=== MONTHLY REVENUE ===")
 print(monthly_revenue)
+
 
 # ============================================
 # Monthly revenue visualization
@@ -443,12 +542,14 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 
 plt.savefig(
-    "report/monthly_revenue.png",
+    REPORT_DIR / "monthly_revenue.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 
 # ============================================
 # Revenue by product category
@@ -479,6 +580,7 @@ revenue_by_category["revenue_share"] = (
 print("\n=== REVENUE BY CATEGORY ===")
 print(revenue_by_category)
 
+
 # ============================================
 # Revenue by category visualization
 # ============================================
@@ -498,12 +600,14 @@ plt.xticks(rotation=30)
 plt.tight_layout()
 
 plt.savefig(
-    "report/revenue_by_category.png",
+    REPORT_DIR / "revenue_by_category.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 
 # ============================================
 # ARPPU
@@ -513,8 +617,10 @@ paying_users = orders["user_id"].nunique()
 arppu = total_revenue / paying_users
 
 print("\n=== ARPPU ===")
+
 print(f"Paying users: {paying_users:,}")
 print(f"ARPPU: {arppu:,.2f}")
+
 
 # ============================================
 # Purchases per user
@@ -529,23 +635,35 @@ purchases_per_user = (
     .reset_index()
 )
 
-purchases_per_user.columns = ["purchase_count", "users"]
+purchases_per_user.columns = [
+    "purchase_count",
+    "users"
+]
 
 repeat_buyers = (
     purchases_per_user
-    .loc[purchases_per_user["purchase_count"] >= 2, "users"]
+    .loc[
+        purchases_per_user["purchase_count"] >= 2,
+        "users"
+    ]
     .sum()
 )
 
 repeat_buyer_share = (
-    repeat_buyers / paying_users * 100
+    repeat_buyers
+    / paying_users
+    * 100
 )
 
 print("\n=== PURCHASES PER USER ===")
 print(purchases_per_user)
 
 print(f"\nRepeat buyers: {repeat_buyers:,}")
-print(f"Repeat buyer share: {repeat_buyer_share:.2f}%")
+print(
+    f"Repeat buyer share: "
+    f"{repeat_buyer_share:.2f}%"
+)
+
 
 # ============================================
 # Purchases per user visualization
@@ -574,12 +692,15 @@ for i, value in enumerate(purchases_per_user["users"]):
 plt.tight_layout()
 
 plt.savefig(
-    "report/purchases_per_user.png",
+    REPORT_DIR / "purchases_per_user.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
+
 # ============================================
 # Cohort Retention — 30-day periods
 # ============================================
@@ -592,6 +713,7 @@ events_with_registration = events.merge(
 
 # Приводим дату события к дате без времени,
 # чтобы методология совпадала с SQL
+
 events_with_registration["event_date"] = (
     events_with_registration["event_time"].dt.normalize()
 )
@@ -600,33 +722,43 @@ events_with_registration["registration_date"] = pd.to_datetime(
     events_with_registration["registration_date"]
 )
 
+
 # Количество дней с момента регистрации
+
 events_with_registration["days_since_registration"] = (
     events_with_registration["event_date"]
     - events_with_registration["registration_date"]
 ).dt.days
 
+
 # Оставляем только события после регистрации
+
 events_with_registration = events_with_registration[
     events_with_registration["days_since_registration"] >= 0
 ].copy()
+
 
 # 30-дневные периоды:
 # M+0 = 0–29 дней
 # M+1 = 30–59 дней
 # M+2 = 60–89 дней
+
 events_with_registration["retention_month"] = (
     events_with_registration["days_since_registration"] // 30
 ).astype(int)
 
+
 # Когорта = месяц регистрации
+
 events_with_registration["cohort_month"] = (
     events_with_registration["registration_date"]
     .dt.to_period("M")
     .dt.to_timestamp()
 )
 
+
 # Размер каждой когорты
+
 cohort_sizes = (
     users.assign(
         cohort_month=(
@@ -652,9 +784,15 @@ cohort_activity = (
     .reset_index(name="active_users")
 )
 
+
 # Создаем полный набор когорт × retention periods
+
 periods = range(
-    int(events_with_registration["retention_month"].max()) + 1
+    int(
+        events_with_registration[
+            "retention_month"
+        ].max()
+    ) + 1
 )
 
 cohort_period_grid = (
@@ -682,29 +820,40 @@ cohort_retention = cohort_retention.merge(
     how="left"
 )
 
-# Если период полностью наблюдаем, отсутствие активности = 0
+
+# Если период полностью наблюдаем,
+# отсутствие активности = 0
+
 cohort_retention["active_users"] = (
     cohort_retention["active_users"]
     .fillna(0)
     .astype(float)
 )
 
+
 # Последняя дата, до которой у нас есть данные
+
 data_end_date = events_with_registration["event_date"].max()
 
+
 # Конец retention-периода
+
 cohort_retention["period_end"] = (
     pd.to_datetime(
         cohort_retention["cohort_last_registration"]
     )
     + pd.to_timedelta(
-        (cohort_retention["retention_month"] + 1) * 30 - 1,
+        (
+            cohort_retention["retention_month"] + 1
+        ) * 30 - 1,
         unit="D"
     )
 )
 
+
 # Если весь retention-период еще не наблюдаем,
 # значение retention не рассчитываем
+
 cohort_retention.loc[
     cohort_retention["period_end"] > data_end_date,
     "active_users"
@@ -736,6 +885,7 @@ print(retention_matrix.round(2))
 print("\n===== COHORT RETENTION MATRIX =====")
 print(retention_matrix.round(2))
 
+
 # ============================================
 # Cohort Retention Heatmap
 # ============================================
@@ -764,7 +914,9 @@ plt.xlabel("Retention period")
 plt.ylabel("Cohort")
 plt.title("Cohort Retention — 30-day periods")
 
+
 # Показываем значения внутри ячеек
+
 for i in range(len(retention_matrix.index)):
     for j in range(len(retention_matrix.columns)):
         value = retention_matrix.iloc[i, j]
@@ -781,12 +933,15 @@ for i in range(len(retention_matrix.index)):
 plt.tight_layout()
 
 plt.savefig(
-    "report/cohort_retention.png",
+    REPORT_DIR / "cohort_retention.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
+
 # ============================================
 # Time to Second Purchase
 # ============================================
@@ -802,7 +957,10 @@ time_to_second_purchase = []
 
 for user_id, dates in purchase_dates.items():
     if len(dates) >= 2:
-        days = (dates[1] - dates[0]).total_seconds() / 86400
+        days = (
+            dates[1] - dates[0]
+        ).total_seconds() / 86400
+
         time_to_second_purchase.append(days)
 
 time_to_second_purchase = pd.Series(
@@ -811,21 +969,43 @@ time_to_second_purchase = pd.Series(
 )
 
 print("\nTime to second purchase:")
-print(f"Repeat buyers: {len(time_to_second_purchase):,}")
+
+print(
+    f"Repeat buyers: "
+    f"{len(time_to_second_purchase):,}"
+)
+
 print(
     f"Average days: "
     f"{time_to_second_purchase.mean():.2f}"
 )
+
 print(
     f"Median days: "
     f"{time_to_second_purchase.median():.2f}"
 )
+
+
 # ============================================
 # Time to Second Purchase Distribution
 # ============================================
 
-bins = [0, 7, 14, 30, 60, float("inf")]
-labels = ["0-7 days", "8-14 days", "15-30 days", "31-60 days", "60+ days"]
+bins = [
+    0,
+    7,
+    14,
+    30,
+    60,
+    float("inf")
+]
+
+labels = [
+    "0-7 days",
+    "8-14 days",
+    "15-30 days",
+    "31-60 days",
+    "60+ days"
+]
 
 time_to_second_purchase_buckets = pd.cut(
     time_to_second_purchase,
@@ -854,6 +1034,8 @@ time_to_second_purchase_distribution["share"] = (
 
 print("\nTime to second purchase distribution:")
 print(time_to_second_purchase_distribution)
+
+
 # ============================================
 # Time to Second Purchase Visualization
 # ============================================
@@ -883,12 +1065,15 @@ for i, value in enumerate(
 plt.tight_layout()
 
 plt.savefig(
-    "report/time_to_second_purchase.png",
+    REPORT_DIR / "time_to_second_purchase.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
+
 # ============================================
 # Conversion by Device
 # ============================================
@@ -926,9 +1111,11 @@ device_conversion["conversion"] = (
     / device_conversion["sessions"]
     * 100
 )
-# =========================
+
+
+# ============================================
 # A/B TEST
-# =========================
+# ============================================
 
 ab_events = events[
     events["event_name"].isin([
@@ -946,7 +1133,12 @@ ab_events = ab_events.merge(
 ab_sessions = (
     ab_events
     .groupby(
-        ["experiment_group", "user_id", "session_id", "event_name"],
+        [
+            "experiment_group",
+            "user_id",
+            "session_id",
+            "event_name"
+        ],
         as_index=False
     )["event_time"]
     .min()
@@ -955,7 +1147,11 @@ ab_sessions = (
 ab_sessions = (
     ab_sessions
     .pivot_table(
-        index=["experiment_group", "user_id", "session_id"],
+        index=[
+            "experiment_group",
+            "user_id",
+            "session_id"
+        ],
         columns="event_name",
         values="event_time",
         aggfunc="min"
@@ -992,6 +1188,12 @@ ab_results["conversion_percent"] = (
 
 print("\n=== A/B TEST ===")
 print(ab_results)
+
+
+# ============================================
+# A/B Test Visualization
+# ============================================
+
 plt.figure(figsize=(8, 5))
 
 plt.bar(
@@ -1004,7 +1206,9 @@ plt.xlabel("Experiment group")
 plt.ylabel("Conversion (%)")
 plt.ylim(0, 100)
 
-for i, value in enumerate(ab_results["conversion_percent"]):
+for i, value in enumerate(
+    ab_results["conversion_percent"]
+):
     plt.text(
         i,
         value + 2,
@@ -1013,13 +1217,19 @@ for i, value in enumerate(ab_results["conversion_percent"]):
     )
 
 plt.tight_layout()
+
 plt.savefig(
-    "report/ab_test_conversion.png",
-    dpi=150
+    REPORT_DIR / "ab_test_conversion.png",
+    dpi=150,
+    bbox_inches="tight"
 )
+
 plt.close()
+
 print("\nConversion by device:")
 print(device_conversion)
+
+
 # ============================================
 # Conversion by Traffic Source
 # ============================================
@@ -1072,6 +1282,8 @@ source_conversion = source_conversion.sort_values(
 )
 
 print("\nConversion by traffic source:")
+
+
 # ============================================
 # Traffic Source Conversion Visualization
 # ============================================
@@ -1087,7 +1299,9 @@ plt.title("Conversion by Traffic Source")
 plt.xlabel("Traffic Source")
 plt.ylabel("Conversion, %")
 
-for i, value in enumerate(source_conversion["conversion"]):
+for i, value in enumerate(
+    source_conversion["conversion"]
+):
     plt.text(
         i,
         value,
@@ -1099,10 +1313,12 @@ for i, value in enumerate(source_conversion["conversion"]):
 plt.tight_layout()
 
 plt.savefig(
-    "report/conversion_by_traffic_source.png",
+    REPORT_DIR / "conversion_by_traffic_source.png",
     dpi=150,
     bbox_inches="tight"
 )
 
 plt.show()
+plt.close()
+
 print(source_conversion)

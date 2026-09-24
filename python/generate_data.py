@@ -56,7 +56,7 @@ def generate_users(n_users: int) -> pd.DataFrame:
         )
 
         rows.append({
-	    "experiment_group": random.choice(["control", "test"]),
+        "experiment_group": random.choice(["control", "test"]),
             "user_id": user_id,
             "registration_date": registration_date,
             "country": random.choices(
@@ -250,16 +250,16 @@ def generate_events(users: pd.DataFrame, products: pd.DataFrame) -> pd.DataFrame
             event_id += 1
 
             # A/B тест:
-	    # control — текущая конверсия
+        # control — текущая конверсия
             # test — немного более высокая вероятность добавления в корзину
 
             if user["experiment_group"] == "control":
-            	drop_probability = 0.40
+                drop_probability = 0.40
             else:
-            	drop_probability = 0.32
+                drop_probability = 0.32
 
             if random.random() < drop_probability:
-            	continue
+                continue
 
             # -----------------------------
             # 3. ADD TO CART
